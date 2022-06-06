@@ -1,10 +1,14 @@
-FROM node:lts-alpine as frontbuilder
+FROM node:16-alpine as frontbuilder
 WORKDIR /go/src/github.com/documize/community/gui
 COPY ./gui /go/src/github.com/documize/community/gui
 RUN npm --network-timeout=100000 install
 RUN npm run build -- --environment=production --output-path dist-prod --suppress-sizes true
 
-FROM golang:1.17-alpine as builder
+FROM golang:1.18-alpine as builder
+ARG TARGET_OS=linux
+ARG TARGET_ARCH=amd64
+ARG TARGET_DEBUG='tls13=1'
+
 WORKDIR /go/src/github.com/documize/community
 COPY . /go/src/github.com/documize/community
 COPY --from=frontbuilder /go/src/github.com/documize/community/gui/dist-prod/assets /go/src/github.com/documize/community/edition/static/public/assets
@@ -22,11 +26,12 @@ COPY core/database/scripts/mysql/*.sql /go/src/github.com/documize/community/edi
 COPY core/database/scripts/postgresql/*.sql /go/src/github.com/documize/community/edition/static/scripts/postgresql/
 COPY core/database/scripts/sqlserver/*.sql /go/src/github.com/documize/community/edition/static/scripts/sqlserver/
 COPY domain/onboard/*.json /go/src/github.com/documize/community/edition/static/onboard/
-RUN env GODEBUG=tls13=1 go build -mod=vendor -o bin/documize-community ./edition/community.go
+RUN GODEBUG=$TARGET_DEBUG CGO_ENABLED=0 GOOS=$TARGET_OS GOARCH=$TARGET_ARCH go build -mod=vendor -o bin/documize ./edition/community.go
 
 # build release image
-FROM alpine:3.14
+FROM alpine:latest
+RUN mkdir /config
 RUN apk add --no-cache ca-certificates
-COPY --from=builder /go/src/github.com/documize/community/bin/documize-community /documize
-EXPOSE 5001
-ENTRYPOINT [ "/documize" ]
+COPY --from=builder /go/src/github.com/documize/community/bin/documize-community /bin/documize
+EXPOSE 80
+CMD [ "documize", "/config/config.toml"]
